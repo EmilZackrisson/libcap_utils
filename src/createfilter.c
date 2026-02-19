@@ -25,6 +25,8 @@
 #include "caputils/picotime.h"
 #include "caputils_int.h"
 
+#include "format/format.h"
+
 #include <unistd.h>
 #include <ctype.h>
 #include <time.h>
@@ -40,6 +42,9 @@
 #include <pcap/pcap.h>
 #endif
 
+
+
+
 /* uint32_t MSB */
 #define PARAM_BIT (~((uint32_t)-1 >> 1))
 
@@ -50,6 +55,19 @@ enum Parameters {
 	PARAM_CAPLEN = 1,
 	PARAM_MODE,
 	PARAM_BPF,
+	PARAM_CHANGEPORT,
+	PARAM_PATTERN,
+	PARAM_PATTERN_IC,
+
+};
+
+enum Informational {
+	SETTING_SHOWPORTS = 100000,  /* Hopefully big enough not to collide with Parameters or Filter values. */
+	SETTING_HTTPSHOW,
+	SETTING_HTTPSHOWHEADER,
+	SETTING_HTTPSHOWBODY,
+	SETTING_HTTPNEWLINE,
+
 };
 
 static struct option options[]= {
@@ -79,77 +97,122 @@ static struct option options[]= {
 	{"frame-num",    required_argument, 0, FILTER_FRAME_NUM},
 
 	{"bpf",       required_argument, 0, PARAM_BPF | PARAM_BIT},
+
+	/* Changing behaviour */
+	{"changeport", required_argument, 0, PARAM_CHANGEPORT | PARAM_BIT},
+	{"http-grep", required_argument, 0, PARAM_PATTERN | PARAM_BIT },
+	{"http-grep-icase", no_argument, 0, PARAM_PATTERN_IC | PARAM_BIT },
+	{"showports", no_argument, 0, SETTING_SHOWPORTS },
+	{"httpShow", no_argument, 0, SETTING_HTTPSHOW },
+	{"httpShowHeader", no_argument, 0, SETTING_HTTPSHOWHEADER },
+	{"httpShowBody", no_argument, 0, SETTING_HTTPSHOWBODY },
+	{"http-newline", no_argument, 0, SETTING_HTTPNEWLINE },
 	{0, 0, 0, 0}
 };
 
 /* Remove the consumed arguments from argv by shifting the others until all
- * consumed ones are at the and, and decrement argc. */
-static void split_argv(int* src_argc, char** src_argv, int* dst_argc, char** dst_argv){
-	/* always copy program_name */
-	dst_argv[(*dst_argc)++] = src_argv[0];
+ * consumed ones are at the end, and decrement argc.
+ * We now honor struct option::has_arg properly. */
+static void split_argv(int *src_argc, char **src_argv, int *dst_argc, char **dst_argv)
+{
+    /* always copy program_name */
+    dst_argv[(*dst_argc)++] = src_argv[0];
 
-	/* no arguments passed */
-	if ( *src_argc == 1 ){
-		return;
-	}
+    /* no arguments passed */
+    if (*src_argc == 1) {
+        return;
+    }
 
-	char** ptr = &src_argv[1];
-	int i = 1;
-	do {
-		const char* arg = *ptr;
-		if ( strlen(arg) < 3 ){ /* not enough chars */
-			i++;
-			ptr++;
-			continue;
-		}
+    char **ptr = &src_argv[1];
+    int i = 1;
 
-		/* find = to determine how many chars to compare */
-		size_t maxlen = 0;
-		const char* tmp = arg;
-		while ( maxlen++, *++tmp ) if ( *tmp == '=' ) break;
+    do {
+        const char *arg = *ptr;
 
-		/* check if it is consumed */
-		struct option* cur = options;
-		for ( cur = options; cur->name; cur++ ){
-			if ( arg[0] != '-' || arg[1] != '-' ) continue;
-			if ( strncmp(cur->name, &arg[2], maxlen-2) != 0 ) continue;
+        if (strlen(arg) < 3) {  /* too short to be a long option */
+            i++;
+            ptr++;
+            continue;
+        }
 
-			/* got a match, proceed with copy and shift argument */
-			size_t n = 2;
+        if (!(arg[0] == '-' && arg[1] == '-')) {
+            /* not a long option we care about here */
+            i++;
+            ptr++;
+            continue;
+        }
 
-			/* ensure valid argument follows */
-			if ( arg[maxlen] == '=' ){ /* "--foo=bar" */
-				n = 1;
-			} else { /* "--foo=bar */
-				if ( (i+1) == *src_argc || ptr[1][0] == '-' ){
-					if ( filter_from_argv_opterr ){
-						fprintf(stderr, "%s: option '--%s' requires an argument\n", src_argv[0], cur->name);
-					}
-					n = 1;
-				}
-			}
+        /* Split --opt[=value] into name and optional value */
+        const char *optname = arg + 2;
+        const char *eq = strchr(optname, '=');
+        size_t namelen = eq ? (size_t)(eq - optname) : strlen(optname);
 
-			/* copy arguments to dst_argv */
-			dst_argv[(*dst_argc)++] = ptr[0];
-			if ( n == 2 ) dst_argv[(*dst_argc)++] = ptr[1];
+        /* find matching long option by name length + content */
+        struct option *cur = options;
+        for (; cur->name; cur++) {
+            if (strlen(cur->name) != namelen) continue;
+            if (strncmp(cur->name, optname, namelen) != 0) continue;
 
-			/* shift arguments in src_argv */
-			void* dst = ptr;
-			void* src = ptr+n;
-			size_t bytes = (&src_argv[*src_argc] - (ptr+n)) * sizeof(char*);
-			memmove(dst, src, bytes);
+            /* matched --cur->name[=value?] */
+            size_t n = 1;  /* always consume the option itself */
 
-			*src_argc -= n;
-			break;
-		}
+            if (cur->has_arg == no_argument) {
+                /* --flag, nothing more to consume */
+                /* n = 1; */
+            } else if (cur->has_arg == required_argument) {
+                if (eq) {
+                    /* --opt=value => value is embedded; consume only this argv */
+                    /* n = 1; */
+                } else {
+                    /* need a separate argument: --opt value */
+                    if ((i + 1) < *src_argc && ptr[1][0] != '-') {
+                        /* there is a following value token, consume it too */
+                        n = 2;
+                    } else {
+                        if (filter_from_argv_opterr) {
+                            fprintf(stderr, "%s: option '--%s' requires an argument\n",
+                                    src_argv[0], cur->name);
+                        }
+                        /* We still pass the option along without a value to dst_argv.
+                         * Caller (getopt_long) will report '?' / handle it again. */
+                        n = 1;
+                    }
+                }
+            } else { /* optional_argument */
+                if (eq) {
+                    /* value present as --opt=value (consume 1) */
+                    /* n = 1; */
+                } else {
+                    /* no separate value -> keep as only the option */
+                    /* n = 1; */
+                }
+            }
 
-		/* no match */
-		if ( !cur->name ){
-			i++;
-			ptr++;
-		}
-	} while ( i < *src_argc );
+            /* copy to dst_argv */
+            dst_argv[(*dst_argc)++] = ptr[0];
+            if (n == 2) dst_argv[(*dst_argc)++] = ptr[1];
+
+            /* shift the remaining src_argv left by n */
+            void *dst = ptr;
+            void *src = ptr + n;
+            size_t bytes = (&src_argv[*src_argc] - (ptr + n)) * sizeof(char *);
+            memmove(dst, src, bytes);
+
+            *src_argc -= (int)n;
+            /* Do not advance i/ptr here: we placed a new element at ptr, loop re-checks */
+            break;
+        }
+
+        /* no match among our long options, keep scanning */
+        if (!cur->name) {
+            i++;
+            ptr++;
+        }
+
+    } while (i < *src_argc);
 }
+
+
 
 /**
  * Parse a string as IP address and mask. Mask does not have to correspond to valid netmask.
@@ -410,6 +473,30 @@ static int bpf_set(struct filter* filter, const char* expr, const char* program_
 	return 0;
 }
 
+static int http_grep_compile(http_t *cfg)
+{
+    if (!cfg || !cfg->grep_enabled) return 0; // nothing to do
+    int cflags = REG_NEWLINE;                 // ^/$ match line ends; '.' won't cross newline
+    if (cfg->grep_icase) cflags |= REG_ICASE;
+
+    int rc = regcomp(&cfg->grep_re, cfg->grep_pattern, cflags);
+    if (rc != 0) {
+        // optional: show regerror(rc, &cfg->grep_re, buf, sizeof buf)
+        cfg->grep_enabled = false;
+        return rc;
+    }
+    return 0;
+}
+
+static void http_grep_free(http_t *cfg)
+{
+	printf("http grep free\n");
+    if (cfg && cfg->grep_enabled) {
+        regfree(&cfg->grep_re);
+        cfg->grep_enabled = false;
+    }
+}
+
 void filter_from_argv_usage(){
 	printf("libcap_filter-" VERSION " options\n"
 	       "      --starttime=DATETIME      Discard all packages before starttime described by\n"
@@ -444,8 +531,25 @@ void filter_from_argv_usage(){
 	       "                                supplied BPF. Matching takes place after DPMI\n"
 	       "                                filter.\n"
 #endif
+	       "      --changeport=<protocolname>:<newport> \n"
+	       "                                Instead of using the default for <protocolname>\n"
+	       "                                use <newport> for that protocol.\n"
+	       "                                Will override -all- for that port. \n"
+		   "      --showports				Show the application and port associations.\n"
+		   "								Use changeport to adjust.\n"
+		   "	  --httpShow				Show HTTP short (default off) \n"
+		   "	  --httpShowHeader			Show HTTP Header section (default off) \n"
+		   "								Enables httpShow.\n"
+		   "	  --httpShowBody			Show HTTP Body section (default off) \n"
+		   "								Enables httpShow.\n"
+		   "								(....)"
+		   "      --http-grep=<pattern>     Match <pattern> in the http payload.\n"
+		   "      --http-grep-icase		    Case insensitive matching.\n"
+		   "	  --http-newline			Disable newlines, prints all on one line. \n"
+
 		);
 }
+
 
 void filter_init(struct filter* filter){
 	memset(filter, 0, sizeof(struct filter));
@@ -497,6 +601,37 @@ int filter_from_argv(int* argcptr, char** argv, struct filter* filter){
 			break;
 		}
 
+//		printf("->op: %d -- %d (SETTING_SHOWPORTS)\n", op, SETTING_SHOWPORTS);
+		if ( op ==  SETTING_SHOWPORTS ) { 
+			printf("Defult/Active Application - Port mappings.\n");
+			supported_protocols(stdout);
+			/* set ret to terminate */
+			ret=EINVAL;
+			break;			
+		}	
+
+		if ( op == SETTING_HTTPSHOW ){
+			httpFormatOptions.show=true;
+			continue;
+		}
+
+		if ( op == SETTING_HTTPSHOWHEADER ){
+			httpFormatOptions.show=true;
+			httpFormatOptions.showHeaders=true;
+			continue;
+		}
+		if ( op == SETTING_HTTPSHOWBODY ){
+			httpFormatOptions.show=true;
+			httpFormatOptions.showBody=true;
+			continue;
+		}
+
+		if ( op == SETTING_HTTPNEWLINE ) {
+			httpFormatOptions.newline=true;
+			continue;
+		}	
+
+
 		if ( op & PARAM_BIT ){
 			switch ((enum Parameters)(op ^ PARAM_BIT)){
 			case PARAM_CAPLEN:
@@ -513,6 +648,66 @@ int filter_from_argv(int* argcptr, char** argv, struct filter* filter){
 
 			case PARAM_BPF:
 				ret = bpf_set(filter, optarg, argv[0]);
+				break;
+
+
+		    /* NEW: pattern handling */
+			case PARAM_PATTERN:
+				printf("HTTP-GREP <pattern>\n");
+				httpFormatOptions.grep_enabled = true;
+				/* store a bounded copy of the pattern */
+				if (optarg && *optarg) {
+					/* ensure NUL-termination */
+					strncpy(httpFormatOptions.grep_pattern, optarg,
+							sizeof(httpFormatOptions.grep_pattern) - 1);
+					httpFormatOptions.grep_pattern[sizeof(httpFormatOptions.grep_pattern) - 1] = '\0';
+				} else {
+					httpFormatOptions.grep_pattern[0] = '\0';
+				}
+				break;
+
+			case PARAM_PATTERN_IC:
+				printf("CASE INSENSITIVE\n");
+				httpFormatOptions.grep_icase = true;
+				break;
+
+
+
+			case PARAM_CHANGEPORT:
+						
+				char *arg = strdup(optarg);   // make a modifiable copy
+				if (!arg) {
+				  fprintf(stderr, "Out of memory\n");
+				  break;
+				}
+
+				char *colon = strchr(arg, ':');
+				if (!colon) {
+				  fprintf(stderr, "Invalid format, expected <protocol>:<port>\n");
+				  free(arg);
+				  break;
+				}
+
+				*colon = '\0';           // split into two strings
+				char *protostr = arg;
+				char *portstr  = colon + 1;
+
+				int port = atoi(portstr);
+				if (port <= 0 || port > 65535) {
+				  fprintf(stderr, "Invalid port number: %s\n", portstr);
+				  free(arg);
+				  break;
+				}
+				printf("Setting port.%s = %d => %d : ", protostr, ports_get(protostr), port);
+
+				if (ports_set(protostr, (uint16_t)port) != 0) {
+				  fprintf(stderr, "Unknown protocol name: %s\n", protostr);
+				  printf(" Failed.\n");
+				  
+				} else {
+				  printf(" OK.\n");
+				}
+				free(arg);				   
 				break;
 
 			}
@@ -631,6 +826,18 @@ int filter_from_argv(int* argcptr, char** argv, struct filter* filter){
 	/* restore getopt */
 	opterr = opterr_save;
 	optind = optind_save;
+	
+	/* after option loop */
+	if (httpFormatOptions.grep_enabled) {
+		int rc = http_grep_compile(&httpFormatOptions);
+		if (rc != 0) {
+			/* invalid regex; keep running but with grep disabled */
+			if (filter_from_argv_opterr) {
+				fprintf(stderr, "%s: invalid --http-grep regex, ignoring\n", argv[0]);
+			}
+		}
+	}
+
 
 	/* save argc */
 	*argcptr = argc;
@@ -654,6 +861,7 @@ int filter_close(struct filter* filter){
 		cur = next;
 	}
 
+    http_grep_free(&httpFormatOptions);
 	return 0;
 }
 

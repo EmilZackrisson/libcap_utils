@@ -24,6 +24,7 @@
 #include "caputils/filter.h"
 #include "caputils/packet.h"
 #include "caputils_int.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -47,220 +48,9 @@
 #define FILTER __attribute__ ((pure, visibility ("hidden")))
 #endif
 
-/**
- * Match ethernet address.
- */
-static int matchEth(const struct ether_addr* desired, const struct ether_addr* mask, const uint8_t net[ETH_ALEN]){
-	for ( int i=0; i < ETH_ALEN; i++ ){
-		uint8_t t = (net[i] & mask->ether_addr_octet[i]);
-		if( t != desired->ether_addr_octet[i] ){
-			return 0;
-		}
-	}
 
-	return 1;
-}
 
-static const struct ether_vlan_header* find_ether_vlan_header(const struct ethhdr* ether, uint16_t* h_proto){
-	if( *h_proto == 0x8100 ){
-	  const struct ether_vlan_header* vlan = (const struct ether_vlan_header*)ether;
-	  *h_proto = ntohs(vlan->h_proto);
-	  return vlan;
-	}
-	return NULL;
-}
 
-static const void* find_ipproto_header(const void* pkt, const struct ethhdr* ether, const struct ip* ip){
-	const size_t vlan_offset = ntohs(ether->h_proto) == 0x8100 ? 4 : 0; /* vlan tag is 4 octets */
-	return pkt + sizeof(struct ethhdr) + vlan_offset + 4*(ip->ip_hl);
-}
-
-const struct tcphdr* find_tcp_header(const void* pkt, const struct ethhdr* ether, const struct ip* ip, uint16_t* src, uint16_t* dst){
-	if ( !( ip && ip->ip_p == IPPROTO_TCP) ){
-		return NULL;
-	}
-	const struct tcphdr* tcp = (const struct tcphdr*)find_ipproto_header(pkt, ether, ip);
-	if ( src ) *src = ntohs(tcp->source);
-	if ( dst ) *dst = ntohs(tcp->dest);
-	return tcp;
-}
-
-const struct udphdr* find_udp_header(const void* pkt, const struct ethhdr* ether, const struct ip* ip, uint16_t* src, uint16_t* dst){
-	if ( !( ip && ip->ip_p == IPPROTO_UDP) ){
-		return NULL;
-	}
-	const struct udphdr* udp = (const struct udphdr*)find_ipproto_header(pkt, ether, ip);
-	if ( src ) *src = ntohs(udp->source);
-	if ( dst ) *dst = ntohs(udp->dest);
-	return udp;
-}
-
-/**
- * Filter tests.
- * Filters return non-zero if the match and zero if rejected.
- */
-
-int FILTER filter_iface(const struct filter* filter, const char* iface){
-	return  (filter->index & FILTER_CI) && (strstr(iface, filter->iface) != NULL);
-}
-
-int FILTER filter_vlan_tci(const struct filter* filter, const struct ether_vlan_header* vlan){
-	return (filter->index & FILTER_VLAN) && vlan && (ntohs(vlan->vlan_tci) & filter->vlan_tci_mask) == filter->vlan_tci;
-}
-
-int FILTER filter_h_proto(const struct filter* filter, uint16_t h_proto){
-	return (filter->index & FILTER_ETH_TYPE) && ((h_proto & filter->eth_type_mask) == filter->eth_type);
-}
-
-int FILTER filter_eth_src(const struct filter* filter, const struct ethhdr* ether){
-	return (filter->index & FILTER_ETH_SRC) && matchEth(&filter->eth_src, &filter->eth_src_mask, ether->h_source);
-}
-
-int FILTER filter_eth_dst(const struct filter* filter, const struct ethhdr* ether){
-	return (filter->index & FILTER_ETH_DST) && matchEth(&filter->eth_dst, &filter->eth_dst_mask, ether->h_dest);
-}
-
-int FILTER filter_ip_proto(const struct filter* filter, const struct ip* ip){
-	return (filter->index & FILTER_IP_PROTO) && (ip && filter->ip_proto == ip->ip_p);
-}
-
-int FILTER filter_ip_src(const struct filter* filter, const struct ip* ip){
-	return (filter->index & FILTER_IP_SRC) && (ip && (ip->ip_src.s_addr & filter->ip_src_mask.s_addr) == filter->ip_src.s_addr);
-}
-
-int FILTER filter_ip_dst(const struct filter* filter, const struct ip* ip){
-	return (filter->index & FILTER_IP_DST) && (ip && (ip->ip_dst.s_addr & filter->ip_dst_mask.s_addr) == filter->ip_dst.s_addr);
-}
-
-int FILTER filter_src_port(const struct filter* filter, uint16_t port){
-	return (filter->index & FILTER_SRC_PORT) && (filter->src_port == (port & filter->src_port_mask));
-}
-
-int FILTER filter_dst_port(const struct filter* filter, uint16_t port){
-	return (filter->index & FILTER_DST_PORT) && (filter->dst_port == (port & filter->dst_port_mask));
-}
-
-int FILTER filter_port(const struct filter* filter, uint16_t src, uint16_t dst){
-	return (filter->index & FILTER_PORT) && (filter->port == (src & filter->port_mask) || filter->port == (dst & filter->port_mask));
-}
-
-int FILTER filter_mampid(const struct filter* filter, const char mampid[]){
-	return (filter->index & FILTER_MAMPID) && (strncmp(filter->mampid, mampid, 8) == 0);
-}
-
-int FILTER filter_start_time(const struct filter* filter, const timepico* time){
-	return (filter->index & FILTER_START_TIME) && (timecmp(&filter->starttime, time) <= 0);
-}
-
-int FILTER filter_end_time(const struct filter* filter, const timepico* time){
-	return (filter->index & FILTER_END_TIME) && (timecmp(&filter->endtime, time) > 0);
-}
-
-int FILTER filter_frame_dt(const struct filter* filter, const timepico time){
-	if ( !(filter->index & FILTER_FRAME_MAX_DT) ){
-		return 0;
-	}
-
-	/* assume match when packets are out-of-order */
-	if ( timecmp(&time, &filter->frame_last_ts) < 0 ){
-		return 1;
-	}
-
-	const timepico iat = timepico_sub(time, filter->frame_last_ts);
-	return timecmp(&iat, &filter->frame_max_dt) <= 0;
-}
-
-int filter_frame_num(const struct filter* filter){
-	if ( !filter->frame_num ){
-		return 0;
-	}
-
-	/* only the first range has to be tested as they are continously pruned when
-	 * the state is updated. */
-
-	if ( filter->frame_counter < filter->frame_num->lower ){
-		return 0;
-	}
-
-	if ( filter->frame_num->upper > 0 && filter->frame_counter > filter->frame_num->upper ){
-		return 0;
-	}
-
-	return 1;
-}
-
-static int filter_core(const struct filter* filter, const void* pkt, struct cap_header* head){
-	const struct ethhdr* ether = (const struct ethhdr*)pkt;
-	uint16_t h_proto = ntohs(ether->h_proto); /* may be overwritten by find_ether_vlan_header */
-	uint16_t src_port = 0; /* set by find_{tcp,udp}_header */
-	uint16_t dst_port = 0; /* set by find_{tcp,udp}_header */
-
-	const struct ether_vlan_header* vlan = find_ether_vlan_header(ether, &h_proto);
-	const struct ip* ip = find_ipv4_header(ether, NULL);
-	find_tcp_header(pkt, ether, ip, &src_port, &dst_port);
-	find_udp_header(pkt, ether, ip, &src_port, &dst_port);
-
-	unsigned int match = 0;
-
-	/* base tests */
-	match |= filter_dst_port(filter, dst_port)       << OFFSET_DST_PORT;    /* Transport dest port */
-	match |= filter_src_port(filter, src_port)       << OFFSET_SRC_PORT;    /* Transport source port */
-	match |= filter_ip_dst(filter, ip)               << OFFSET_IP_DST;      /* IP destination address */
-	match |= filter_ip_src(filter, ip)               << OFFSET_IP_SRC;      /* IP source address */
-	match |= filter_ip_proto(filter, ip)             << OFFSET_IP_PROTO;    /* IP protocol */
-	match |= filter_eth_dst(filter, ether)           << OFFSET_ETH_DST;     /* Ethernet destination */
-	match |= filter_eth_src(filter, ether)           << OFFSET_ETH_SRC;     /* Ethernet source */
-	match |= filter_h_proto(filter, h_proto)         << OFFSET_ETH_TYPE;    /* Ethernet type */
-	match |= filter_vlan_tci(filter, vlan)           << OFFSET_VLAN;        /* VLAN TCI (Tag Control Information) */
-	match |= filter_iface(filter, head->nic)         << OFFSET_IFACE;       /* Capture Interface (iface) */
-
-	/* 0.7 extensions */
-	match |= filter_mampid(filter, head->mampid)     << OFFSET_MAMPID;      /* MAMPid */
-	match |= filter_end_time(filter, &head->ts)      << OFFSET_END_TIME;    /* End time vs packet timestamp */
-	match |= filter_start_time(filter, &head->ts)    << OFFSET_START_TIME;  /* Start time vs packet timestamp */
-	match |= filter_port(filter, src_port, dst_port) << OFFSET_PORT;        /* Transport source or dest port */
-
-	/* local tests */
-	match |= filter_frame_dt(filter, head->ts)       << OFFSET_FRAME_MAX_DT;
-	match |= filter_frame_num(filter)                << OFFSET_FRAME_NUM;
-
-	switch ( filter->mode ){
-	case FILTER_AND: return match == filter->index;
-	case FILTER_OR:  return match > 0;
-	default: fprintf(stderr, "invalid filter mode\n"); abort();
-	}
-}
-
-int filter_match(struct filter* filter, const void* pkt, struct cap_header* head){
-	assert(filter);
-	assert(pkt);
-	assert(head);
-
-	/* exceptions for first packet */
-	if ( filter->first ){
-		filter->frame_last_ts = head->ts;
-		filter->first = 0;
-	}
-
-	const int core_match = filter->index == 0 || filter_core(filter, pkt, head);
-	const int bpf_match = filter->bpf_insn == NULL || bpf_filter(filter->bpf_insn, pkt, head->len, head->caplen);
-	const int match = core_match && bpf_match;
-
-	/* prune old frame ranges */
-	if ( filter->frame_num && filter->frame_num->upper > 0 && filter->frame_counter > filter->frame_num->upper ){
-		struct frame_num_node* next = filter->frame_num->next;
-		free(filter->frame_num);
-		filter->frame_num = next;
-	}
-
-	/* store filter state */
-	filter->frame_counter++;
-	if ( match ){
-		filter->frame_last_ts = head->ts;
-	}
-
-	return match;
-}
 
 static const char* inet_ntoa_r(const struct in_addr in, char* buf){
 	const char* tmp = inet_ntoa(in);
@@ -449,3 +239,5 @@ void filter_unpack(struct filter_packed* src, struct filter* dst){
 	/* fill defaults for local filters */
 	dst->frame_num = NULL;
 }
+
+

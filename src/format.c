@@ -27,8 +27,96 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <regex.h>
+
+
+#include  "caputils/export.h"
+
+
 
 static int min(int a, int b){ return a<b?a:b; }
+
+/* Allows for changing ports that match protocols, uses defaults otherwise. */
+CAPUTILS_API
+portmap_t ports = {
+    .dns = PORT_DNS,
+    .http = PORT_HTTP,
+    .cp = PORT_CP,
+    .clp = PORT_CLP,
+    .tg = PORT_TG,
+    .marker = PORT_MARKER,
+    .bacnet = PORT_BACNET
+};
+
+CAPUTILS_API
+http_t httpFormatOptions = {
+	.show = false,
+	.showHeaders = false,
+	.showBody = false,
+	.grep_enabled = false,
+	.grep_pattern = {0},
+	.grep_icase = false,
+	.grep_re = {0},
+	.newline = false,		// Prevent 'newline' from printing. 
+	.match_seen = false
+};
+	
+
+
+struct protocol_info {
+    const char *name;
+    uint16_t   *ptr;   // pointer into the ports struct
+};
+
+static struct protocol_info protocol_table[] = {
+    { "dns",    &ports.dns },
+    { "http",   &ports.http },
+    { "cp",     &ports.cp },
+    { "clp",    &ports.clp },
+    { "tg",     &ports.tg },
+    { "marker", &ports.marker },
+    { "bacnet", &ports.bacnet },
+    { NULL, NULL }
+};
+
+CAPUTILS_API
+void supported_protocols(FILE *fp)
+{
+    for (int i = 0; protocol_table[i].name; i++) {
+        fprintf(fp, "%-8s : %u\n",
+                protocol_table[i].name,
+                *protocol_table[i].ptr);
+    }
+}
+
+CAPUTILS_API
+int ports_set(const char *name, uint16_t value)
+{
+    if (!name) return -1;
+    if (strcmp(name, "dns") == 0)      { ports.dns = value; return 0; }
+    if (strcmp(name, "http") == 0)     { ports.http = value; return 0; }
+    if (strcmp(name, "cp") == 0)       { ports.cp = value; return 0; }
+    if (strcmp(name, "clp") == 0)      { ports.clp = value; return 0; }
+    if (strcmp(name, "tg") == 0)       { ports.tg = value; return 0; }
+    if (strcmp(name, "marker") == 0)   { ports.marker = value; return 0; }
+    if (strcmp(name, "bacnet") == 0)   { ports.bacnet = value; return 0; }
+    return -2; /* unknown name */
+}
+
+CAPUTILS_API
+uint16_t ports_get(const char *name)
+{
+    if (strcmp(name, "dns") == 0) return ports.dns;
+    if (strcmp(name, "http") == 0) return ports.http;
+    if (strcmp(name, "cp") == 0) return ports.cp;
+    if (strcmp(name, "clp") == 0) return ports.clp;
+    if (strcmp(name, "tg") == 0) return ports.tg;
+    if (strcmp(name, "marker") == 0) return ports.marker;
+    if (strcmp(name, "bacnet") == 0) return ports.bacnet;
+
+    return 0; // unknown protocol
+}
+
 
 void fputs_printable(const char* str, int max, FILE* fp){
 	unsigned int n = max >= 0 ? (unsigned int)min(max, strlen(str)) : strlen(str);

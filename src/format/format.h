@@ -32,6 +32,9 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
+#include <regex.h>
+
+#include  "caputils/export.h"
 
 enum {
 	PORT_DNS = 53,
@@ -47,11 +50,44 @@ enum {
 extern "C" {
 #endif
 
+
+typedef struct {
+    uint16_t dns;
+    uint16_t http;
+    uint16_t cp;
+    uint16_t clp;
+    uint16_t tg;
+    uint16_t marker;
+    uint16_t bacnet;
+} portmap_t;
+
+typedef struct {
+	bool show;				// If enabled, show header and body size
+	bool showHeaders;		// If enabled, show headers
+	bool showBody;			// If enabled, show body.
+	
+    bool   grep_enabled;       // If enabled, a pattern was supplied
+    char   grep_pattern[256];  // original pattern (optional: for logging)
+    bool   grep_icase;         // case-insensitive?
+    regex_t grep_re;           // compiled regex
+
+	bool	newline;		// Prevent 'newline' from printing. 
+    bool match_seen;   // Set to true if any line matched the filter
+
+} http_t;
+
 struct name_table {
 	int value;
 	const char* name;
 };
 
+CAPUTILS_API extern 	portmap_t ports; 
+CAPUTILS_API extern 	http_t httpFormatOptions; 
+CAPUTILS_API int 		ports_set(const char *name, uint16_t value);
+CAPUTILS_API uint16_t 	ports_get(const char *name);
+CAPUTILS_API void 		supported_protocols(FILE *fp);
+
+  
 /**
  * From a name table find entry with value and return name.
  * If value isn't found it returns def.
