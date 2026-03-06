@@ -27,7 +27,7 @@ struct entry {
 struct state {
 	int seq; /* sequence number of initializing packet */
 	struct entry* entry;
-	struct state* sibling;
+	struct entry* sibling_entry;
 
 	connection_id_t id;
 };
@@ -113,20 +113,22 @@ static struct state* connection_id_tcp_syn(struct simple_list* bucket, const str
 
 	/* new SYN detected, assume new connection */
 	const connection_id_t id = ++counter;
+	struct entry* cur_entry = state->entry;
+	struct entry* sibling_entry = state->sibling_entry;
 	struct state* new[2] = {
-		entry_put(bucket, state->entry, id),
-		entry_put(bucket, state->sibling->entry, id),
+		entry_put(bucket, cur_entry, id),
+		entry_put(bucket, sibling_entry, id),
 	};
 
 	/* setup new connection */
 	for ( unsigned int i = 0; i < 2; i++ ){
 		new[i]->seq = tcp->seq;
-		new[i]->sibling = new[1-i];
+		new[i]->sibling_entry = new[1-i]->entry;
 	}
 
 	/* close the old connection */
-	state->entry->finished = 1;
-	state->sibling->entry->finished = 1;
+	cur_entry->finished = 1;
+	sibling_entry->finished = 1;
 
 	return new[0];
 }
@@ -154,7 +156,7 @@ static connection_id_t connection_id_search(struct simple_list* bucket, const st
 
 	/* set siblings for connection closing and new handshakes */
 	for ( unsigned int i = 0; i < 2; i++ ){
-		new[i]->sibling = new[1-i];
+		new[i]->sibling_entry = new[1-i]->entry;
 	}
 
 	return id;
