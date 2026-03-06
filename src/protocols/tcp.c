@@ -165,6 +165,10 @@ static enum caputils_protocol_type tcp_next(struct header_chunk* header, const c
 		return PROTOCOL_DNS;
 	}
 
+	if ( (sport == ports.http || dport == ports.http ) ) {
+		return PROTOCOL_HTTP;
+	}
+
 	return PROTOCOL_DATA;
 }
 
@@ -186,19 +190,28 @@ static void tcp_format(FILE* fp, const struct header_chunk* header, const char* 
 	const uint16_t sport = ntohs(tcp->source);
 	const uint16_t dport = ntohs(tcp->dest);
 
+
+	const char* payload = (const char*)tcp + 4*tcp->doff;
+
 	fprintf(fp, ": [%s] %s:%d --> %s:%d", tcp_flags(tcp),
 	        header->last_net.net_src, sport,
 	        header->last_net.net_dst, dport);
 
-	fprintf(fp, " ws=%d seq=%u ack=%u ", ntohs(tcp->window), ntohl(tcp->seq), ntohl(tcp->ack_seq));
+
+	fprintf(fp, " ws=%d seq=%u ack=%u payload=%ld ", ntohs(tcp->window), ntohl(tcp->seq), ntohl(tcp->ack_seq),payload_size);
 	tcp_options(header->cp, tcp, fp);
 
-	const char* payload = (const char*)tcp + 4*tcp->doff;
 	if ( payload_size == 0 ) return;
-	
-	if ( (sport == PORT_HTTP || dport == PORT_HTTP) ) {
+
+	/*
+		Added 'better' support for HTTP.  Not needing this anymoire.
+
+	if ( (sport == ports.http || dport == ports.http) ) {
+		fprintf(fp, "HTTP>  ");	
 		print_http(fp, header->cp, payload, payload_size, flags);
 	}
+	*/
+
 	if ( (sport == PORT_CLP || dport == PORT_CLP) ) {
 	  fprintf(fp, "CLP  ");
 		print_clp(fp, header->cp, payload, payload_size, flags);

@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_CFLAGS = -Wall -Wcast-qual ${PCAP_CFLAGS} ${PFRING_CFLAGS}
 
-lib_LTLIBRARIES = libcap_utils-07.la libcap_filter-07.la libcap_marc-07.la
+lib_LTLIBRARIES = libcap_filter-07.la libcap_utils-07.la libcap_marc-07.la
 bin_PROGRAMS = 
 noinst_PROGRAMS =                      \
 	ifstat                               \
@@ -134,9 +134,10 @@ libcap_utils_07_la_SOURCES = \
 	src/protocols/marker.c    \
 	src/protocols/cp.c        \
 	src/protocols/clp.c        \
+	src/protocols/http.c       \
 	src/protocols/ethernet.c   \
 	src/protocols/gre.c        \
-	src/protocols/gtp.c	       \
+	src/protocols/gtp.c	   \
 	src/protocols/icmp.c       \
 	src/protocols/igmp.c       \
 	src/protocols/ip.c         \
@@ -146,8 +147,8 @@ libcap_utils_07_la_SOURCES = \
 	src/protocols/ospf.c       \
 	src/protocols/vrrp.c       \
 	src/protocols/lldp.c       \
-	src/protocols/ptpv2.c	     \
-	src/protocols/sctp.c	     \
+	src/protocols/ptpv2.c	   \
+	src/protocols/sctp.c	   \
 	src/protocols/tcp.c        \
 	src/protocols/udp.c        \
 	src/protocols/vlan.c       \
@@ -189,10 +190,10 @@ else
 vcs.h: Makefile
 	@echo -n > vcs.h
 endif
-libcap_utils_07_la_SOURCES += vcs.h
+libcap_utils_07_la_SOURCES += vcs.h src/filter_match.c
 
 libcap_filter_07_la_LDFLAGS = -version-info 0:2:0
-libcap_filter_07_la_LIBADD = ${PCAP_LIBS}
+libcap_filter_07_la_LIBADD = libcap_utils-07.la ${PCAP_LIBS}
 libcap_filter_07_la_SOURCES = src/createfilter.c src/filter.c
 
 libcap_marc_07_la_LDFLAGS = -shared -version-info 0:1:0
@@ -200,7 +201,8 @@ libcap_marc_07_la_CFLAGS = ${AM_CFLAGS} ${libcap_filter_CFLAGS}
 libcap_marc_07_la_SOURCES = src/marc.c src/marc_dstat.c
 
 tools_CFLAGS = ${AM_CFLAGS} -I${top_srcdir}/fallback
-tools_LIBS = libcap_utils-07.la libcap_filter-07.la ${PCAP_LIBS} ${PFRING_LIBS}
+tools_LIBS = libcap_filter-07.la libcap_utils-07.la  ${PCAP_LIBS} ${PFRING_LIBS}
+
 
 pcap2cap_SOURCES = tools/pcap2cap.c
 pcap2cap_CFLAGS = ${tools_CFLAGS}
@@ -220,7 +222,7 @@ capfilter_CFLAGS = ${tools_CFLAGS}
 capfilter_LDADD = ${tools_LIBS}
 capmarker_SOURCES = tools/capmarker.c
 capmarker_CFLAGS = ${tools_CFLAGS}
-capmarker_LDADD = libcap_utils-07.la libcap_filter-07.la
+capmarker_LDADD =  ${tools_LIBS}
 capmerge_SOURCES = tools/capmerge.c
 capmerge_CFLAGS = ${tools_CFLAGS}
 capmerge_LDADD = ${tools_LIBS}
@@ -247,7 +249,7 @@ tests_filter_argv_SOURCES = tests/filter_argv.cpp
 
 tests_address_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS)
 tests_address_LDFLAGS = $(CPPUNIT_LIBS)
-tests_address_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_address_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_address_SOURCES = tests/address.cpp
 
 # -Dfulhack is needed so libtool will become less confused about
@@ -256,34 +258,34 @@ tests_address_SOURCES = tests/address.cpp
 tests_endian_CFLAGS = ${AM_CFLAGS} -Dfulhack
 tests_endian_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS) -I${top_srcdir}/fallback
 tests_endian_LDFLAGS = $(CPPUNIT_LIBS)
-tests_endian_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_endian_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_endian_SOURCES = tests/endian.cpp fallback/be64toh.c
 
 tests_hexdump_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS)
 tests_hexdump_LDFLAGS = $(CPPUNIT_LIBS)
-tests_hexdump_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_hexdump_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_hexdump_SOURCES = tests/hexdump.cpp tests/common.cpp src/log.c
 
 tests_packet_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS) -DDATA_FILENAME=\"tests/http.packet\" -DDATA_SIZE=541
 tests_packet_LDFLAGS = $(CPPUNIT_LIBS)
-tests_packet_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_packet_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_packet_SOURCES = tests/packet.cpp tests/common.cpp
 
 tests_stream_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS)
 tests_stream_LDFLAGS = $(CPPUNIT_LIBS)
-tests_stream_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_stream_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_stream_SOURCES = tests/stream.cpp
 
 tests_timepico_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS)
 tests_timepico_LDFLAGS = $(CPPUNIT_LIBS)
-tests_timepico_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_timepico_LDADD = libcap_filter-07.la libcap_utils-07.la 
 tests_timepico_SOURCES = tests/timepico.cpp
 
 tests_slist_CXXFLAGS = ${AM_CFLAGS} $(CPPUNIT_CFLAGS)
 tests_slist_LDFLAGS = $(CPPUNIT_LIBS)
 tests_slist_SOURCES = tests/slist.cpp src/slist.c
 
-tests_capdump_argv_LDADD = libcap_utils-07.la libcap_filter-07.la
+tests_capdump_argv_LDADD = libcap_filter-07.la libcap_utils-07.la 
 
 example_01_reading_packets_CFLAGS = ${tools_CFLAGS}
 example_01_reading_packets_LDADD = ${tools_LIBS}

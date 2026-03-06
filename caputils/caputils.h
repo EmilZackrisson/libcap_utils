@@ -84,4 +84,5 @@ struct llc_pdu_sn {
 	uint8_t ctrl_2;
 };
 
+
 #endif /* CAPUTILS_CAPUTILS_H */

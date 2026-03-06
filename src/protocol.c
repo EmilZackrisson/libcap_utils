@@ -43,7 +43,6 @@ struct caputils_protocol* protocol_get(enum caputils_protocol_type type){
 static void __attribute__((constructor)) protocol_init(void){
 	REGISTER_PROTOCOL(protocol_data, PROTOCOL_DATA);
 	REGISTER_PROTOCOL(protocol_done, PROTOCOL_DONE);
-
 	REGISTER_PROTOCOL(protocol_arp, PROTOCOL_ARP);
 	REGISTER_PROTOCOL(protocol_bacnet, PROTOCOL_BACNET);
 	REGISTER_PROTOCOL(protocol_cdp, PROTOCOL_CDP);
@@ -62,7 +61,8 @@ static void __attribute__((constructor)) protocol_init(void){
 	REGISTER_PROTOCOL(protocol_sctp, PROTOCOL_SCTP);
 	REGISTER_PROTOCOL(protocol_stp, PROTOCOL_STP);
 	REGISTER_PROTOCOL(protocol_tcp, PROTOCOL_TCP);
-	REGISTER_PROTOCOL(protocol_clp, PROTOCOL_CLP);// TCP calc line protocol 
+	REGISTER_PROTOCOL(protocol_clp, PROTOCOL_CLP);// TCP calc line protocol
+	REGISTER_PROTOCOL(protocol_http, PROTOCOL_HTTP);// TCP HTTP protocol 
 	REGISTER_PROTOCOL(protocol_cp, PROTOCOL_CP);  // UDP calc protocol
 	REGISTER_PROTOCOL(protocol_tg, PROTOCOL_TG);  // Traffic Generator UDP protocol
 	REGISTER_PROTOCOL(protocol_marker, PROTOCOL_MARKER); // Cap Marker Protocol 

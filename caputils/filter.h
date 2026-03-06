@@ -30,6 +30,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include  "caputils/export.h"
+
+
 /**
  * Filter versions
  *
@@ -94,6 +97,9 @@ enum FilterBitmask {
 	/* local filters */
 	FILTER_FRAME_MAX_DT = (1<<OFFSET_FRAME_MAX_DT),
 	FILTER_FRAME_NUM = (1<<OFFSET_FRAME_NUM),
+
+	/* Not filters really, informational */
+	SHOWPORTS,
 };
 
 enum FilterMode {
@@ -250,7 +256,7 @@ void filter_print(const struct filter* filter, FILE* fp, int verbose);
  * @param head Capture header.
  * @return Return non-zero if packet matches.
  */
-int filter_match(struct filter* filter, const void* pkt, struct cap_header* head);
+CAPUTILS_API int filter_match(struct filter* filter, const void* pkt, struct cap_header* head);
 
 int filter_close(struct filter* filter);
 

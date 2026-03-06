@@ -123,6 +123,7 @@ int main(int argc, char **argv){
 		return 0; /* error already shown */
 	}
 
+	printf("After filter_from_argv \n");
 	int op, option_index = -1;
 	while ( (op = getopt_long(argc, argv, shortopts, longopts, &option_index)) != -1 ){
 		switch (op){
