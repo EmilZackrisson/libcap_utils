@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_CFLAGS = -Wall -Wcast-qual ${PCAP_CFLAGS} ${PFRING_CFLAGS}
 
-lib_LTLIBRARIES = libcap_filter-07.la libcap_utils-07.la libcap_marc-07.la
+lib_LTLIBRARIES = libcap_utils-07.la libcap_filter-07.la libcap_marc-07.la
 bin_PROGRAMS = 
 noinst_PROGRAMS =                      \
 	ifstat                               \
@@ -88,6 +88,7 @@ nobase_include_HEADERS =    \
 	caputils/address.h   \
 	caputils/capture.h   \
 	caputils/caputils.h  \
+	caputils/export.h    \
 	caputils/file.h      \
 	caputils/filter.h    \
 	caputils/interface.h \
